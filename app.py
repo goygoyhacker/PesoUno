@@ -1,54 +1,29 @@
 # app.py - PisoUno Coin Detection System
 # Optimized for Streamlit Cloud deployment
 
+# IMPORTANT: set_page_config MUST be the first Streamlit command
 import streamlit as st
+
+# This MUST be the first Streamlit command
+st.set_page_config(
+    page_title="PisoUno - 1 Peso Coin Detection",
+    page_icon="💰",
+    layout="wide"
+)
+
+# All other imports come AFTER set_page_config
 import os
 import sys
-
-# Display Python version for debugging
-st.write(f"Python version: {sys.version[:5]}")
-
-# Try importing with fallbacks
-try:
-    import cv2
-    st.success("OpenCV loaded successfully")
-    CV2_AVAILABLE = True
-except ImportError as e:
-    st.error(f"OpenCV not loaded: {e}")
-    st.warning("The app will run in limited mode without OpenCV")
-    CV2_AVAILABLE = False
-
-try:
-    import numpy as np
-    st.success("NumPy loaded successfully")
-    NUMPY_AVAILABLE = True
-except ImportError as e:
-    st.error(f"NumPy not loaded: {e}")
-    NUMPY_AVAILABLE = False
-
-try:
-    from sklearn.svm import SVC
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.model_selection import train_test_split
-    from sklearn.metrics import accuracy_score
-    st.success("Scikit-learn loaded successfully")
-    SKLEARN_AVAILABLE = True
-except ImportError as e:
-    st.error(f"Scikit-learn not loaded: {e}")
-    SKLEARN_AVAILABLE = False
-
-try:
-    from PIL import Image
-    st.success("PIL loaded successfully")
-    PIL_AVAILABLE = True
-except ImportError as e:
-    st.error(f"PIL not loaded: {e}")
-    PIL_AVAILABLE = False
-
-# Check if all required packages are available
-if not (CV2_AVAILABLE and NUMPY_AVAILABLE and SKLEARN_AVAILABLE and PIL_AVAILABLE):
-    st.error("Missing required packages. Please check deployment logs.")
-    st.stop()
+import cv2
+import numpy as np
+from PIL import Image
+from sklearn.svm import SVC
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
+import tempfile
+import warnings
+warnings.filterwarnings('ignore')
 
 # ============================================
 # Feature Extraction Functions
@@ -210,14 +185,8 @@ def classify_coin(coin_roi, classifier, scaler):
         return "UNKNOWN", 0.0
 
 # ============================================
-# Streamlit UI
+# Streamlit UI (all UI code after set_page_config)
 # ============================================
-
-st.set_page_config(
-    page_title="PisoUno - 1 Peso Coin Detection",
-    page_icon="💰",
-    layout="wide"
-)
 
 # Custom CSS
 st.markdown("""
