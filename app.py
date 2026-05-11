@@ -1,31 +1,53 @@
-# app.py - PisoUno Complete Coin Detection System
-# Old and New 1 Peso Coin Detection, Classification, Counting, and Total Value
+# app.py - PisoUno Coin Detection System
+# Optimized for Streamlit Cloud deployment
 
 import streamlit as st
-import numpy as np
-from PIL import Image
-import tempfile
 import os
-import warnings
-warnings.filterwarnings('ignore')
+import sys
 
-# Import required packages
+# Display Python version for debugging
+st.write(f"Python version: {sys.version[:5]}")
+
+# Try importing with fallbacks
 try:
     import cv2
+    st.success("OpenCV loaded successfully")
     CV2_AVAILABLE = True
-except ImportError:
+except ImportError as e:
+    st.error(f"OpenCV not loaded: {e}")
+    st.warning("The app will run in limited mode without OpenCV")
     CV2_AVAILABLE = False
-    st.error("OpenCV not loaded. Please check installation.")
+
+try:
+    import numpy as np
+    st.success("NumPy loaded successfully")
+    NUMPY_AVAILABLE = True
+except ImportError as e:
+    st.error(f"NumPy not loaded: {e}")
+    NUMPY_AVAILABLE = False
 
 try:
     from sklearn.svm import SVC
     from sklearn.preprocessing import StandardScaler
+    from sklearn.model_selection import train_test_split
+    from sklearn.metrics import accuracy_score
+    st.success("Scikit-learn loaded successfully")
     SKLEARN_AVAILABLE = True
-except ImportError:
+except ImportError as e:
+    st.error(f"Scikit-learn not loaded: {e}")
     SKLEARN_AVAILABLE = False
-    st.error("Scikit-learn not loaded. Please check installation.")
 
-if not CV2_AVAILABLE or not SKLEARN_AVAILABLE:
+try:
+    from PIL import Image
+    st.success("PIL loaded successfully")
+    PIL_AVAILABLE = True
+except ImportError as e:
+    st.error(f"PIL not loaded: {e}")
+    PIL_AVAILABLE = False
+
+# Check if all required packages are available
+if not (CV2_AVAILABLE and NUMPY_AVAILABLE and SKLEARN_AVAILABLE and PIL_AVAILABLE):
+    st.error("Missing required packages. Please check deployment logs.")
     st.stop()
 
 # ============================================
@@ -35,7 +57,6 @@ if not CV2_AVAILABLE or not SKLEARN_AVAILABLE:
 def extract_coin_features(image, img_size=(64, 64)):
     """
     Extract features from a coin image for classification
-    Returns combined feature vector
     """
     try:
         # Convert PIL to OpenCV if needed
@@ -47,12 +68,12 @@ def extract_coin_features(image, img_size=(64, 64)):
         img_resized = cv2.resize(image, img_size)
         gray = cv2.cvtColor(img_resized, cv2.COLOR_BGR2GRAY)
         
-        # 1. Hu Moments (shape features - 7 features)
+        # 1. Hu Moments (shape features)
         moments = cv2.moments(gray)
         hu_moments = cv2.HuMoments(moments).flatten()
         hu_moments = -np.sign(hu_moments) * np.log10(np.abs(hu_moments) + 1e-10)
         
-        # 2. Color Histograms (3 channels x 8 bins = 24 features)
+        # 2. Color Histograms
         hist_features = []
         for i in range(3):
             hist = cv2.calcHist([img_resized], [i], None, [8], [0, 256])
@@ -67,10 +88,10 @@ def extract_coin_features(image, img_size=(64, 64)):
         mean_intensity = np.mean(gray) / 255.0
         std_intensity = np.std(gray) / 255.0
         
-        # Combine all features
+        # Combine features
         features = np.hstack([hu_moments, hist_features, [edge_density, mean_intensity, std_intensity]])
         
-        # Ensure consistent feature size (pad if needed)
+        # Fixed size
         target_size = 100
         if len(features) < target_size:
             features = np.pad(features, (0, target_size - len(features)))
@@ -85,7 +106,6 @@ def extract_coin_features(image, img_size=(64, 64)):
 def detect_coins_in_image(image):
     """
     Detect all coins in an image using Hough Circle Transform
-    Returns list of detected coin regions
     """
     try:
         # Convert to OpenCV format
@@ -117,7 +137,6 @@ def detect_coins_in_image(image):
             circles = np.round(circles[0, :]).astype("int")
             
             for (x, y, r) in circles:
-                # Extract coin region
                 x1 = max(0, x - r)
                 y1 = max(0, y - r)
                 x2 = min(img.shape[1], x + r)
@@ -133,7 +152,6 @@ def detect_coins_in_image(image):
                         'bbox': (x1, y1, x2, y2)
                     })
                     
-                    # Draw circle on annotated image
                     cv2.circle(annotated_img, (x, y), r, (0, 255, 0), 2)
         
         return coin_regions, annotated_img
@@ -141,25 +159,17 @@ def detect_coins_in_image(image):
     except Exception as e:
         return [], None
 
-# ============================================
-# Training Function
-# ============================================
-
 def train_classifier_from_uploads(old_images, new_images):
-    """
-    Train SVM classifier from uploaded images
-    """
+    """Train SVM classifier from uploaded images"""
     X = []
     y = []
     
-    # Process old coins (label 0)
     for img in old_images:
         features = extract_coin_features(img)
         if features is not None:
             X.append(features)
             y.append(0)
     
-    # Process new coins (label 1)
     for img in new_images:
         features = extract_coin_features(img)
         if features is not None:
@@ -172,27 +182,18 @@ def train_classifier_from_uploads(old_images, new_images):
     X = np.array(X)
     y = np.array(y)
     
-    # Normalize features
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
     
-    # Train SVM
     classifier = SVC(kernel='rbf', probability=True, random_state=42)
     classifier.fit(X_scaled, y)
     
-    # Calculate training accuracy
     accuracy = classifier.score(X_scaled, y)
     
     return classifier, scaler, accuracy
 
-# ============================================
-# Classification Function
-# ============================================
-
 def classify_coin(coin_roi, classifier, scaler):
-    """
-    Classify a single coin as OLD or NEW
-    """
+    """Classify a single coin as OLD or NEW"""
     try:
         features = extract_coin_features(coin_roi)
         if features is None:
@@ -203,8 +204,7 @@ def classify_coin(coin_roi, classifier, scaler):
         probabilities = classifier.predict_proba(features_scaled)[0]
         confidence = max(probabilities)
         
-        coin_type = "NEW" if prediction == 1 else "OLD"
-        return coin_type, confidence
+        return "NEW" if prediction == 1 else "OLD", confidence
         
     except Exception as e:
         return "UNKNOWN", 0.0
@@ -214,7 +214,7 @@ def classify_coin(coin_roi, classifier, scaler):
 # ============================================
 
 st.set_page_config(
-    page_title="PisoUno - 1 Peso Coin Detection System",
+    page_title="PisoUno - 1 Peso Coin Detection",
     page_icon="💰",
     layout="wide"
 )
@@ -252,17 +252,6 @@ st.markdown("""
         font-weight: bold;
         color: #2e7d32;
     }
-    .stButton > button {
-        width: 100%;
-        background: linear-gradient(90deg, #1e3c72, #2a5298);
-        color: white;
-        border: none;
-        padding: 0.5rem;
-    }
-    .stButton > button:hover {
-        background: linear-gradient(90deg, #2a5298, #1e3c72);
-        color: white;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -271,7 +260,7 @@ st.markdown("""
 <div class="main-header">
     <h1>PisoUno</h1>
     <p>Old and New 1 Peso Coin Detection, Classification, and Counting System</p>
-    <p>Denomination: 1 Peso | Value per coin: PHP 1.00</p>
+    <p>Value per coin: PHP 1.00</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -284,203 +273,99 @@ if 'classifier' not in st.session_state:
     st.session_state.total_new = 0
     st.session_state.total_value = 0
 
-# Sidebar for training
+# Sidebar
 with st.sidebar:
-    st.header("Training Phase")
-    st.markdown("Upload sample images to train the classifier")
+    st.header("Training")
     
-    st.subheader("Upload OLD 1 Peso Coins")
     old_train = st.file_uploader(
-        "Select OLD coin images",
+        "OLD 1 Peso Coins",
         type=['jpg', 'jpeg', 'png'],
         accept_multiple_files=True,
-        key="old_train"
+        key="old"
     )
     
-    st.subheader("Upload NEW 1 Peso Coins")
     new_train = st.file_uploader(
-        "Select NEW coin images",
+        "NEW 1 Peso Coins",
         type=['jpg', 'jpeg', 'png'],
         accept_multiple_files=True,
-        key="new_train"
+        key="new"
     )
     
     if st.button("Train Classifier", type="primary"):
-        if old_train and new_train:
-            if len(old_train) >= 2 and len(new_train) >= 2:
-                with st.spinner("Training classifier. Please wait..."):
-                    # Load images
-                    old_imgs = [Image.open(f) for f in old_train]
-                    new_imgs = [Image.open(f) for f in new_train]
-                    
-                    # Train
-                    classifier, scaler, accuracy = train_classifier_from_uploads(old_imgs, new_imgs)
-                    
-                    if classifier is not None:
-                        st.session_state.classifier = classifier
-                        st.session_state.scaler = scaler
-                        st.session_state.trained = True
-                        
-                        st.success(f"Training completed successfully!")
-                        st.metric("Training Accuracy", f"{accuracy:.1%}")
-                        st.info(f"Trained on {len(old_imgs)} OLD and {len(new_imgs)} NEW coins")
-                    else:
-                        st.error("Training failed. Please ensure images are clear.")
-            else:
-                st.warning("Please upload at least 2 images per coin type")
+        if old_train and new_train and len(old_train) >= 2 and len(new_train) >= 2:
+            with st.spinner("Training..."):
+                old_imgs = [Image.open(f) for f in old_train]
+                new_imgs = [Image.open(f) for f in new_train]
+                
+                classifier, scaler, acc = train_classifier_from_uploads(old_imgs, new_imgs)
+                
+                if classifier:
+                    st.session_state.classifier = classifier
+                    st.session_state.scaler = scaler
+                    st.session_state.trained = True
+                    st.success(f"Training complete! Accuracy: {acc:.1%}")
+                else:
+                    st.error("Training failed")
         else:
-            st.warning("Please upload both OLD and NEW coin images")
+            st.warning("Need at least 2 images per type")
     
     if st.session_state.trained:
         st.divider()
-        st.success("Classifier Ready")
-        
-        # Reset counters button
-        if st.button("Reset Counters"):
+        if st.button("Reset All Counters"):
             st.session_state.total_old = 0
             st.session_state.total_new = 0
             st.session_state.total_value = 0
             st.rerun()
 
 # Main area
-st.header("Detection Phase")
-
 if not st.session_state.trained:
-    st.warning("Please train the classifier first using the sidebar")
-    st.info("Upload OLD and NEW 1 Peso coin images, then click 'Train Classifier'")
-    
-    with st.expander("How to use this system"):
-        st.markdown("""
-        **Step 1: Training**
-        - Upload at least 2 images of OLD 1 Peso coins
-        - Upload at least 2 images of NEW 1 Peso coins
-        - Click 'Train Classifier'
-        
-        **Step 2: Detection**
-        - Upload an image containing 1 Peso coins
-        - The system will detect all coins and classify them
-        - Results show counts and total value
-        
-        **Note:** For best results, use clear, well-lit images with coins on a plain background.
-        """)
+    st.warning("Train the classifier first using the sidebar")
 else:
-    # Display current totals
+    # Display totals
     col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.markdown(f"""
-        <div class="coin-card">
-            <div style="font-size: 1.2rem;">OLD 1 Peso Coins</div>
-            <div class="old-coin">{st.session_state.total_old}</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown(f"""
-        <div class="coin-card">
-            <div style="font-size: 1.2rem;">NEW 1 Peso Coins</div>
-            <div class="new-coin">{st.session_state.total_new}</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col3:
-        st.markdown(f"""
-        <div class="coin-card">
-            <div style="font-size: 1.2rem;">Total Value</div>
-            <div class="total-value">PHP {st.session_state.total_value}.00</div>
-        </div>
-        """, unsafe_allow_html=True)
+    col1.markdown(f'<div class="coin-card"><div>OLD COINS</div><div class="old-coin">{st.session_state.total_old}</div></div>', unsafe_allow_html=True)
+    col2.markdown(f'<div class="coin-card"><div>NEW COINS</div><div class="new-coin">{st.session_state.total_new}</div></div>', unsafe_allow_html=True)
+    col3.markdown(f'<div class="coin-card"><div>TOTAL VALUE</div><div class="total-value">PHP {st.session_state.total_value}.00</div></div>', unsafe_allow_html=True)
     
     st.markdown("---")
     
-    # Test image upload
-    test_file = st.file_uploader(
-        "Upload coin image for detection",
-        type=['jpg', 'jpeg', 'png'],
-        help="Image can contain multiple 1 Peso coins"
-    )
+    # Test image
+    test_file = st.file_uploader("Upload coin image for detection", type=['jpg', 'jpeg', 'png'])
     
-    if test_file is not None:
-        # Load image
+    if test_file:
         image = Image.open(test_file)
         
-        # Detect coins
-        with st.spinner("Detecting and classifying coins..."):
-            coin_regions, annotated_img = detect_coins_in_image(image)
+        with st.spinner("Detecting coins..."):
+            coin_regions, annotated = detect_coins_in_image(image)
             
             if coin_regions:
-                # Classify each detected coin
                 results = []
                 for coin in coin_regions:
-                    coin_type, confidence = classify_coin(
-                        coin['roi'],
-                        st.session_state.classifier,
-                        st.session_state.scaler
-                    )
-                    results.append({
-                        'type': coin_type,
-                        'confidence': confidence,
-                        'position': coin['position']
-                    })
+                    coin_type, conf = classify_coin(coin['roi'], st.session_state.classifier, st.session_state.scaler)
+                    results.append({'type': coin_type, 'confidence': conf})
                 
-                # Update totals
-                old_in_image = sum(1 for r in results if r['type'] == 'OLD')
-                new_in_image = sum(1 for r in results if r['type'] == 'NEW')
+                old_in_img = sum(1 for r in results if r['type'] == 'OLD')
+                new_in_img = sum(1 for r in results if r['type'] == 'NEW')
                 
-                # Display results
-                col1, col2 = st.columns([2, 1])
+                col_img, col_res = st.columns([2, 1])
                 
-                with col1:
-                    st.subheader("Detection Result")
-                    st.image(annotated_img, use_container_width=True)
-                    st.caption("Green circles show detected coin positions")
+                with col_img:
+                    st.image(annotated, use_container_width=True)
+                    st.caption(f"Detected {len(results)} coin(s)")
                 
-                with col2:
-                    st.subheader("Detection Summary")
-                    st.write(f"**Coins detected:** {len(results)}")
-                    st.write(f"**OLD 1 Peso coins:** {old_in_image}")
-                    st.write(f"**NEW 1 Peso coins:** {new_in_image}")
-                    st.write(f"**Total value:** PHP {old_in_image + new_in_image}.00")
+                with col_res:
+                    st.write(f"**OLD coins:** {old_in_img}")
+                    st.write(f"**NEW coins:** {new_in_img}")
+                    st.write(f"**Value:** PHP {old_in_img + new_in_img}.00")
                     
-                    st.subheader("Detailed Results")
-                    for i, res in enumerate(results, 1):
-                        confidence_pct = res['confidence'] * 100
-                        st.write(f"Coin {i}: **{res['type']}** (confidence: {confidence_pct:.1f}%)")
-                
-                # Add to running totals
-                st.markdown("---")
-                st.subheader("Add to Running Total")
-                
-                col_add1, col_add2, col_add3 = st.columns(3)
-                with col_add1:
-                    if st.button(f"Add {old_in_image} OLD Coin(s)", use_container_width=True):
-                        st.session_state.total_old += old_in_image
-                        st.session_state.total_new += new_in_image
+                    if st.button("Add to Total"):
+                        st.session_state.total_old += old_in_img
+                        st.session_state.total_new += new_in_img
                         st.session_state.total_value = st.session_state.total_old + st.session_state.total_new
-                        st.success(f"Added {old_in_image} OLD and {new_in_image} NEW coin(s)")
+                        st.success("Added! Refresh to see updated totals.")
                         st.rerun()
-                
-                with col_add2:
-                    if st.button("Discard Results", use_container_width=True):
-                        st.rerun()
-                
-                with col_add3:
-                    if st.button("Reset All Counters", use_container_width=True):
-                        st.session_state.total_old = 0
-                        st.session_state.total_new = 0
-                        st.session_state.total_value = 0
-                        st.success("All counters reset")
-                        st.rerun()
-                        
             else:
-                st.warning("No coins detected in the image.")
-                st.info("Tips: Use clear, well-lit images with coins on a plain background. Make sure coins are not overlapping.")
+                st.warning("No coins detected")
 
-# Footer
 st.markdown("---")
-st.markdown("""
-<div style="text-align: center; color: gray;">
-    <p><strong>PisoUno</strong> - Philippine 1 Peso Coin Detection System</p>
-    <p>Features: Denomination Classification | Old vs New | Multiple Coin Detection | Counting | Total Value</p>
-</div>
-""", unsafe_allow_html=True)
+st.caption("PisoUno - Philippine 1 Peso Coin Detection System")
