@@ -1,19 +1,13 @@
-# app.py - PisoUno Coin Detection System
-# Optimized for Streamlit Cloud deployment
-
-# IMPORTANT: set_page_config MUST be the first Streamlit command
+# IMPORTANT: set_page_config MUST be the VERY FIRST Streamlit command
+# No imports, no other code before this - just this line first
 import streamlit as st
-
-# This MUST be the first Streamlit command
 st.set_page_config(
     page_title="PisoUno - 1 Peso Coin Detection",
     page_icon="💰",
     layout="wide"
 )
 
-# All other imports come AFTER set_page_config
-import os
-import sys
+# Now all other imports come AFTER set_page_config
 import cv2
 import numpy as np
 from PIL import Image
@@ -22,6 +16,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 import tempfile
+import os
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -185,7 +180,7 @@ def classify_coin(coin_roi, classifier, scaler):
         return "UNKNOWN", 0.0
 
 # ============================================
-# Streamlit UI (all UI code after set_page_config)
+# Streamlit UI
 # ============================================
 
 # Custom CSS
